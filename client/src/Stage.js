@@ -4,8 +4,8 @@ export default class Stage {
 
     constructor() {
         this.setup();
-        //this.onResize();
-        //this.bindEvents();
+        this.onResize();
+        this.bindEvents();
     }
 
     bindEvents() {

@@ -2,7 +2,7 @@ export default class Layout {
 
     constructor() {
         this.onResize();
-        //this.bindEvents();
+        this.bindEvents();
     }
 
     bindEvents() {
