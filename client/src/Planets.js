@@ -17,7 +17,18 @@ export default class Planets {
 
     // Setups
     this.totalMass = 3;
-    this.cMaterial = new C.Material({ friction: 0.9, restitution: 0.5 });
+    this.cMaterial = new C.Material({});
+    const contactMaterial = new C.ContactMaterial(
+      this.cMaterial, // Material #1
+      this.cMaterial, // Material #2
+      {
+        friction: 0.99,
+        frictionEquationRelaxation: 30000,
+        restitution: 0.01,
+      }
+    );
+    this.world.addMaterial(this.cMaterial);
+    this.world.addContactMaterial(contactMaterial);
 
     this.mouse = new THREE.Vector2();
     this.raycaster = new THREE.Raycaster();
@@ -49,7 +60,7 @@ export default class Planets {
     bindToElem.addEventListener("pointermove", (e) => {
       this.onMouseMove(e);
     });
-}
+  }
 
   setup() {
     this.planetBodies = [];
@@ -70,31 +81,49 @@ export default class Planets {
             bevelSegments: 10,
         }*/
 
+    this.ballMassCoefficient = 0.000001; // Very small, so that ball doesn't cause planets to move
     const planets = [
       {
+        type: "ball",
         //position: new C.Vec3(17, 17, 17),
         position: new C.Vec3(2, 10.5, 0),
-        radius: 0.5,
-        mass: 0.0001,
+        radius: 0.3,
+        mass: 0.1 * this.ballMassCoefficient,
         color: new THREE.Color("#FFFFFF"),
       },
       {
+        type: "planet",
         position: new C.Vec3(2, 0, 5),
         radius: 2,
         mass: 400,
-        color: new THREE.Color("#D8F285"),
+        color: new THREE.Color("#9367C4"),
       },
       {
+        type: "planet",
         position: new C.Vec3(-4, -4, -4),
         radius: 0.5,
         mass: 200,
-        color: new THREE.Color("#76B36F"),
+        color: new THREE.Color("#D8F285"),
       },
       {
+        type: "planet",
         position: new C.Vec3(2, 7, 0),
         radius: 3,
         mass: 400,
         color: new THREE.Color("#67C473"),
+      },
+      {
+        type: "planet",
+        position: new C.Vec3(-8, 7, 4),
+        radius: 1,
+        mass: 400,
+        color: new THREE.Color("#C46773"),
+        hoop: {
+          radius: 0.6,
+          tube: 0.08,
+          position: new C.Vec3(0, 1.1, 0),
+          color: new THREE.Color("#FFFFFF"),
+        }
       },
     ];
 
@@ -109,14 +138,9 @@ export default class Planets {
       const geometry = new THREE.SphereGeometry(planet.radius, 32, 32);
 
       //geometry.computeBoundingBox();
-      //geometry.computeBoundingSphere();
+      geometry.computeBoundingSphere();
 
       const mesh = new THREE.Mesh(geometry, material);
-      //mesh.position.set(planet.position.x, planet.position.y, planet.position.z);
-
-      // Get size
-      //mesh.size = mesh.geometry.boundingBox.getSize(new THREE.Vector3());
-      //mesh.size.multiply(new THREE.Vector3(0.5, 0.5, 0.5));
 
       // Cannon.js
       mesh.initPosition = planet.position;
@@ -129,60 +153,79 @@ export default class Planets {
         mass: planet.mass,
         position: mesh.initPosition,
         material: this.cMaterial,
-        linearDamping: 0.5,
-        angularDamping: 0.99,
+        linearDamping: 0.4,
+        angularDamping: 0.9,
       });
 
-      mesh.body.addShape(
-        cannonShape,
-        new C.Vec3()
-      );
+      mesh.body.addShape(cannonShape, new C.Vec3());
+
+      // Hoop
+      if(planet.hoop)
+      {
+        const hoop = planet.hoop;
+        const hoopMaterial = new THREE.MeshPhongMaterial({
+          color: hoop.color,
+          shininess: 0,
+        });
+        const hoopGeometry = new THREE.TorusGeometry(hoop.radius, hoop.tube, 32, 32);
+        const hoopMesh = new THREE.Mesh(hoopGeometry, hoopMaterial);
+
+        const hoopBodyShape = new C.Trimesh.createTorus(hoop.radius, hoop.tube, 32, 32);
+        /*hoopMesh.body = new C.Body({
+          mass: hoop.mass,
+          position: hoopMesh.initPosition,
+          material: this.cMaterial,
+          linearDamping: 0.4,
+          angularDamping: 0.9,
+        });*/ // For now maybe the hoop body can have the same properties as the planet it's on
+  
+        mesh.body.addShape(hoopBodyShape, hoop.position);
+  
+        //this.world.addBody(hoopMesh.body);
+        mesh.add(hoopMesh);
+        hoopMesh.position.set(hoop.position.x, hoop.position.y, hoop.position.z);
+
+        this.hoop = hoopMesh;
+
+        // Hoop plane for detecting win
+        const vertices = [
+          hoop.radius, 0, 0, // Centre of 'plane'
+          0, hoop.radius, 0,
+          -hoop.radius, 0, 0,
+          0, -hoop.radius, 0
+        ];
+        const indices = [
+          0, 1, 2,
+          2, 3, 0
+        ];
+        const hoopPlane = new C.Trimesh(vertices, indices);
+        //const hoopPlane = new C.Cylinder(100, 100, 0.0001, 32);
+
+        const hoopPlaneBody = new C.Body({position: planet.position});
+        hoopPlaneBody.addShape(hoopPlane, hoop.position);
+        //const hoopPlaneBody = new C.Body({position: new C.Vec3()});
+        //hoopPlaneBody.addShape(hoopPlane, new C.Vec3());
+        hoopPlaneBody.collisionResponse = false;
+        this.world.addBody(hoopPlaneBody);
+        this.hoopPlaneBody = hoopPlaneBody;
+      }
 
       this.world.addBody(mesh.body);
       this.planetBodies.push(mesh);
-      /*if(i === 0)
-                this.ball = mesh;*/
-
-      /*    const pivotPos = mesh.initPosition.clone()
-
-                pivotPos.y += 4
-
-                // Pivot
-                mesh.pivot = new C.Body({
-                    mass: 0,
-                    position: pivotPos,
-                    shape: new C.Sphere(0.1),
-                })
-
-                const hingePivot = new C.HingeConstraint(mesh.body, mesh.pivot, {
-                    pivotA: new C.Vec3(0, 4, 0),
-                    pivotB: new C.Vec3(0, 0, 0),
-                    axisA: C.Vec3.UNIT_X,
-                    axisB: C.Vec3.UNIT_X,
-                    maxForce: 1e3,
-                })
-
-                this.world.addConstraint(hingePivot)
-
-                this.world.addBody(mesh.pivot)*/
-
-      /*words.children.forEach((letter) => {
-                letter.body.position.x -= words.len
-                letter.pivot.position.x = letter.body.position.x
-            })
-
-            this.words.push(words)*/
       this.scene.add(mesh);
+
     });
 
-    // Golf ball gravity
+    // Golf ball forces
     this.logs = 0;
     this.world.addEventListener("postStep", () => {
       const doLogs = this.logs % 100 == 0;
 
       const ballBody = this.planetBodies[0].body;
       let totalForce = new C.Vec3(0, 0, 0);
-      const g = 1;
+
+      // Gravity
+      const g = 1; // Gravitational constant
 
       this.planetBodies.forEach((planetMesh, i) => {
         if (i > 0) {
@@ -216,6 +259,7 @@ export default class Planets {
             (g * planetBody.mass * ballBody.mass) / Math.pow(distance, 2),
             difference
           );
+          planetBody.force = difference.negate(new C.Vec3());
           totalForce = totalForce.vadd(difference);
           /*if (doLogs)
             console.log(
@@ -227,12 +271,49 @@ export default class Planets {
         }
       });
 
+      // Surface friction/stickiness
+      if(doLogs) console.log("this.world.contacts", this.world.contacts);
+      const stickiness = 3;
+      const ballContacts = this.world.contacts.filter( ({bi, bj}) => (bi === ballBody || bj === ballBody) );
+      const touchingPlanet = (ballContacts.length > 0);
+      ballBody.linearDamping = touchingPlanet ? 0.9 : 0.4;
       ballBody.force = totalForce;
+      if(touchingPlanet) {
+        if(ballBody.velocity.length() < stickiness) {
+          ballBody.velocity = new C.Vec3();
+          ballBody.force = new C.Vec3();
+        }
+      }
       //if (doLogs) console.log("Total force:", JSON.stringify(totalForce));
 
       this.logs++;
     });
 
+    // Detect ball passing through hole
+    //console.log("Got here");
+    if(this.hoop && this.hoopPlaneBody)
+    {
+      console.log("Got here");
+      this.world.addEventListener("preStep", () => {
+        this.ballPrestepPosition = this.ball.body.position.clone();
+      });
+
+      this.world.addEventListener("postStep", () => {
+        //const doLogs = this.logs % 100 == 0;
+        //if(doLogs) console.log("pre:"+this.ballPrestepPosition.x+","+this.ballPrestepPosition.y+","+this.ballPrestepPosition.z);
+        //if(doLogs) console.log("post:"+this.ball.body.position.x+","+this.ball.body.position.y+","+this.ball.body.position.z);
+        //if(doLogs) console.log("body:", this.hoopPlaneBody);
+        const ray = new C.Ray(this.ballPrestepPosition, this.ball.body.position);
+        //const ray = new C.Ray(new C.Vec3(0, 0, -10), new C.Vec3(0, 0, 10));
+        //if(doLogs) console.log("ray:", ray);
+        ray.checkCollisionResponse = false;
+        ray.intersectWorld(this.world, {}); // intersectBodies seems not to work properly
+        if(ray.result.body && ray.result.body === this.hoopPlaneBody) {
+          console.log("----------!!!!!!!!Has hit!!!!!!!----------");
+          alert("Hole complete!");
+        }
+      });
+    }
     this.ball = this.planetBodies[0];
 
     //this.setConstraints()
@@ -255,30 +336,42 @@ export default class Planets {
       );
       //console.log("onMouseDown: this.scene.children", this.scene.children);
       //console.log("onMouseDown: intersects", intersects);
-  
+
       intersects.forEach(({ object, point }) => {
         //const { object, point } = intersect;
-        if(this.shotSights === object)
-        {
+        if (this.shotSights === object) {
           //console.log("onMouseMove() with takingShot");
-          if(this.shotArrow) {
+          if (this.shotArrow) {
             this.scene.remove(this.shotArrow);
           }
           const material = new THREE.MeshLambertMaterial({
-            color:  new THREE.Color("#22CC22"),
+            color: new THREE.Color("#22CC22"),
             transparent: true,
             opacity: 0.8,
             //side: THREE.DoubleSide
           });
           const arrowVector = point.sub(this.shotStart);
+          const halfwayVector = this.shotStart.clone();
+          halfwayVector.addScaledVector(arrowVector, 0.5);
           this.shotVector = new THREE.Vector3();
           this.shotVector.copy(arrowVector);
-          const arrowGeometry = new THREE.CylinderGeometry(0.1, 0.1, arrowVector.length()*2);
+          const arrowGeometry = new THREE.CylinderGeometry(
+            0.1,
+            0.1,
+            arrowVector.length()
+          );
           const arrowMesh = new THREE.Mesh(arrowGeometry, material);
           this.shotArrow = arrowMesh;
-          arrowMesh.position.set(this.shotStart.x, this.shotStart.y, this.shotStart.z);
+          arrowMesh.position.set(
+            halfwayVector.x,
+            halfwayVector.y,
+            halfwayVector.z
+          );
           const rot1 = new THREE.Quaternion();
-          rot1.setFromUnitVectors(new THREE.Vector3(0,1,0), arrowVector.normalize());
+          rot1.setFromUnitVectors(
+            new THREE.Vector3(0, 1, 0),
+            arrowVector.normalize()
+          );
           arrowMesh.setRotationFromQuaternion(rot1);
           this.scene.add(arrowMesh);
         }
@@ -298,10 +391,10 @@ export default class Planets {
   }
 
   onMouseDown(event) {
-    console.log("onMouseDown()");
+    //console.log("onMouseDown()");
     event.preventDefault();
     // update the picking ray with the camera and mouse position
-    console.log("onMouseDown: this.mouse", this.mouse);
+    //console.log("onMouseDown: this.mouse", this.mouse);
     this.raycaster.setFromCamera(this.mouse, this.camera);
 
     // calculate objects intersecting the picking ray
@@ -309,8 +402,8 @@ export default class Planets {
       this.scene.children,
       true
     );
-    console.log("onMouseDown: this.scene.children", this.scene.children);
-    console.log("onMouseDown: intersects", intersects);
+    //console.log("onMouseDown: this.scene.children", this.scene.children);
+    //console.log("onMouseDown: intersects", intersects);
 
     if (intersects.length > 0) {
       const obj = intersects[0];
@@ -332,24 +425,30 @@ export default class Planets {
       if (this.cameraControls) this.cameraControls.enabled = false;
 
       this.shotStart = this.ball.position;
-      console.log("this.ball:", this.ball);
-      console.log("Shot start:", this.shotStart);
+      //console.log("this.ball:", this.ball);
+      //console.log("Shot start:", this.shotStart);
       //const impulse = new C.Vec3().copy(face.normal).scale(-force);
       //body.applyLocalImpulse(impulse, new C.Vec3());
 
       const material = new THREE.MeshLambertMaterial({
-        color:  new THREE.Color("#CCCC00"),
+        color: new THREE.Color("#CCCC00"),
         transparent: true,
         opacity: 0.3,
-//        side: THREE.DoubleSide
+        //        side: THREE.DoubleSide
       });
-      const geometry = new THREE.CircleGeometry(6, 32, 0, 2*Math.PI);
+      const geometry = new THREE.CircleGeometry(6, 32, 0, 2 * Math.PI);
 
       const mesh = new THREE.Mesh(geometry, material);
       mesh.position.set(this.shotStart.x, this.shotStart.y, this.shotStart.z);
-      console.log("this.camera.getWorldDirection(new Vector3()):",this.camera.getWorldDirection(new THREE.Vector3()));
+      /*console.log(
+        "this.camera.getWorldDirection(new Vector3()):",
+        this.camera.getWorldDirection(new THREE.Vector3())
+      );*/
       const rot1 = new THREE.Quaternion();
-      rot1.setFromUnitVectors(new THREE.Vector3(0,0,-1), this.camera.getWorldDirection(new THREE.Vector3()).normalize());
+      rot1.setFromUnitVectors(
+        new THREE.Vector3(0, 0, -1),
+        this.camera.getWorldDirection(new THREE.Vector3()).normalize()
+      );
       mesh.setRotationFromQuaternion(rot1.normalize());
       this.shotSights = mesh;
       this.scene.add(mesh);
@@ -357,16 +456,20 @@ export default class Planets {
   }
 
   onMouseUp() {
-    console.log("onMouseUp()");
+    //console.log("onMouseUp()");
     if (this.takingShot) {
       this.takingShot = false;
       if (this.cameraControls) this.cameraControls.enabled = true;
 
-      console.log("this.shotVector:",this.shotVector);
-      console.log("this.shotVector.length():",this.shotVector.length());
-      let impulse = new C.Vec3(this.shotVector.x, this.shotVector.y, this.shotVector.z);
-      impulse = impulse.scale(0.0005);
-      this.ball.body.applyLocalImpulse(impulse, new C.Vec3());      
+      //console.log("this.shotVector:", this.shotVector);
+      //console.log("this.shotVector.length():", this.shotVector.length());
+      let impulse = new C.Vec3(
+        this.shotVector.x,
+        this.shotVector.y,
+        this.shotVector.z
+      );
+      impulse = impulse.scale(0.5 * this.ballMassCoefficient);
+      this.ball.body.applyLocalImpulse(impulse, new C.Vec3());
 
       this.scene.remove(this.shotSights);
       this.scene.remove(this.shotArrow);

@@ -66,7 +66,7 @@ export default class Scene {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(W, H);
 
-    render();
+    this.renderer.render();
   }
 
   /* Actions
