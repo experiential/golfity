@@ -24,7 +24,7 @@ export default class Planets {
       {
         friction: 0.99,
         frictionEquationRelaxation: 30000,
-        restitution: 0.01,
+        restitution: 0.5,
       }
     );
     this.world.addMaterial(this.cMaterial);
